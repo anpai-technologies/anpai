@@ -2,5 +2,6 @@ useDynLib(anpai, .registration=TRUE)
 exportPattern("^[[:alpha:]]+")
 importFrom(Rcpp, evalCpp)
 import(dplyr)
+importFrom(dplyr,"%>%")
 import(stringr)
 

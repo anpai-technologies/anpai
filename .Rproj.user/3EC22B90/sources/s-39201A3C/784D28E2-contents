@@ -1,6 +1,3 @@
-require(dplyr)
-require(stringr)
-
 read_ics <- function(path) {
   # use rcpp function to read
   temp <- read_ics_rcpp(path)
