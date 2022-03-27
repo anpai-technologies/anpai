@@ -4,4 +4,9 @@ importFrom(Rcpp, evalCpp)
 import(dplyr)
 importFrom(dplyr,"%>%")
 import(stringr)
+import(lubridate)
+import(tidyr)
+importFrom("stats", "median", "quantile")
+
+
 
