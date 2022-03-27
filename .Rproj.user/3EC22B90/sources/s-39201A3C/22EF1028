@@ -1,0 +1,23 @@
+{
+    "collab_server" : "",
+    "contents" : "",
+    "created" : 1648332634668.000,
+    "dirty" : false,
+    "encoding" : "UTF-8",
+    "folds" : "",
+    "hash" : "1042122074",
+    "id" : "22EF1028",
+    "lastKnownWriteTime" : 1648324859,
+    "last_content_update" : 1648324859,
+    "path" : "~/Desktop/anpai_package/anpai/man/anpai-package.Rd",
+    "project_path" : "man/anpai-package.Rd",
+    "properties" : {
+    },
+    "read_only" : false,
+    "read_only_alternatives" : [
+    ],
+    "relative_order" : 6,
+    "source_on_save" : false,
+    "source_window" : "",
+    "type" : "r_doc"
+}

@@ -1,0 +1,25 @@
+{
+    "collab_server" : "",
+    "contents" : "",
+    "created" : 1648334378704.000,
+    "dirty" : false,
+    "encoding" : "UTF-8",
+    "folds" : "",
+    "hash" : "0",
+    "id" : "90591977",
+    "lastKnownWriteTime" : 1648334475,
+    "last_content_update" : 1648334475943,
+    "path" : "~/Desktop/anpai_package/anpai/man/read_ics_rcpp.Rd",
+    "project_path" : "man/read_ics_rcpp.Rd",
+    "properties" : {
+        "cursorPosition" : "9,13",
+        "scrollLine" : "0"
+    },
+    "read_only" : false,
+    "read_only_alternatives" : [
+    ],
+    "relative_order" : 8,
+    "source_on_save" : false,
+    "source_window" : "",
+    "type" : "r_doc"
+}

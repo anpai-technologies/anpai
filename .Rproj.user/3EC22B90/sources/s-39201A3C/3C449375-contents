@@ -1,0 +1,11 @@
+Package: anpai
+Type: Package
+Title: Meeting Productivity Analytics by Anpai Technologies
+Version: 0.0.1
+Date: 2022-03-26
+Author: Lukas Frei
+Maintainer: Lukas Frei <info@anp.ai>
+Description: Meeting productivity analytics package that provides tools for reading ICS-files, extracting summary statistics about how time is spent, and analyze how to improve the return-on-time-invested.
+License: BSD-4-CLAUSE
+Imports: Rcpp (>= 1.0.4), tidyverse
+LinkingTo: Rcpp

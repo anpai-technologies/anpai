@@ -1,0 +1,1802 @@
+library(Rcpp)
+library(calendar)
+library(dplyr)
+library(stringr)
+library(tidyr)
+library(xts)
+library(dygraphs)
+library(tools)
+library(igraph)
+library(magrittr)
+library(data.table)
+library(visNetwork)
+library(htmlwidgets)
+library(microbenchmark)
+library(textclean)
+library(stringdist)
+library(textcat)
+library(googledrive)
+library(textclean)
+library(digest)
+library(lubridate)
+
+# get rcpp functions
+sourceCpp("Rpackage/code.cpp")
+
+
+##########################################
+# CLASS: initializing a class for calanyzR objects ------------------------------------------
+calanyzR <- function(provider="google", path=NULL)
+{
+  # get calendar owner's name
+  if (!is.null(path)) {
+    con <- file(path)
+    open(con)
+    name <- as.character(read.table(con,skip=5,nrow=1)[,"V1"])
+    close(con)
+    ownerEmail <- paste0("mailto:", str_extract(name, "(:.*)"))
+    name <- str_extract(name, "(:.*@)") %>%
+              str_replace_all("@", "") %>%
+              str_replace_all(":", "") %>%
+              str_replace_all("\\.", " ") %>%
+              str_to_title()
+  } else {
+    name = NULL
+    ownerEmail = NULL
+  }
+  
+  # return attributes
+  me <- list(
+    provider = provider,
+    owner = name,
+    ownerEmail = ownerEmail,
+    path = path,
+    calendarData = NULL, 
+    edgeList = NULL
+  )
+  
+  ## Set the name for the class
+  class(me) <- append(class(me),"calanyzR")
+  return(me)
+}
+# FUNCTION: adding df to class (WORK) ----------------------------------------------------------------
+createDF <- function(object){
+  print("Calling the base createDF function")
+  UseMethod("createDF", object)
+}
+
+createDF.default <- function(object){
+  print("You need to pass a calanyzR object to this method.")
+  return(object)
+}
+
+read_fast <- function(path) {
+  temp <- read_test("/Users/lukas/Downloads/usc.ics")
+  
+  # fix attendees
+  temp$meetingAttendees <- temp$meetingAttendees %>%
+                              str_replace_all("ATTENDEE", "") %>%
+                              str_extract_all('([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\\.[a-zA-Z0-9_-]+)') %>%
+                              sapply(., unique)
+  
+ # temp <- temp %>% mutate(meetingStart = with_tz(parse_date_time(str_replace(meetingStart, c("T", "Z"), ""),
+ #                                         orders = "YmdHMS", tz="UTC"), temp$timeZone[1]),
+ #                         meetingEnd = with_tz(parse_date_time(str_replace(meetingEnd, c("T", "Z"), ""),
+  #                                                               orders = "YmdHMS", tz="UTC"), temp$timeZone[1]),
+  #                        meetingLastModified = with_tz(parse_date_time(str_replace(meetingLastModified, c("T", "Z"), ""),
+   #                                                            orders = "YmdHMS", tz="UTC"), temp$timeZone[1]),
+   #                       meetingRevisions = as.integer(meetingRevisions)
+     #             ) 
+  
+  # convert dates
+  
+  
+  return(temp)
+}
+
+createDF.calanyzR <- function(object){
+  print("In createDF.calanyzR and setting the value")
+  # read ics
+  pathToICS <- object$path
+  print(pathToICS)
+  ics_df <- ic_read(pathToICS)#"/Users/lukas/Downloads/Kalender von Christian Düsi.ics")#pathToICS)
+  
+  #  get all column names
+  all_ = colnames(ics_df)
+  
+  # initialize empty vectors to store related data from ics
+  atte = vector()
+  org = vector()
+  atta = vector()
+  pin = vector()
+  
+  # loop through columns, check if keyword in name, if yes add to respective vector
+  for (el in all_) {
+    if (grepl("ATTENDEE", el) == T){
+      atte <- c(atte, el)
+    } else if (grepl("ORGANIZER", el) == T){
+      org <- c(org, el)
+    } else if (grepl("ATTACH", el) == T){
+      atta <- c(atta, el)
+    } else if (grepl("PIN", el) == T){
+      pin <- c(pin, el)
+    }
+  }
+  
+  # several columns are spread out over multiple columns
+  # the code below unites them and does some basic cleansing
+  df <- ics_df %>% 
+    # combine all attendee columns and do some basic cleansing
+    unite(attendees, atte, sep = " ", remove = T) %>%
+    mutate(attendees = gsub("NA", "", attendees), 
+           attendees = gsub(" +", " ", attendees),
+           attendees = gsub("\\n ", "", attendees),
+           attendees = trimws(attendees),
+           attendees= str_split(attendees, pattern = " ")
+    ) %>%
+    # combine all attachment columns and do some basic cleansing
+  #  unite(attachments, atta, sep = " ", remove = T) %>%
+  #  mutate(
+  #    attachments = gsub("NA", "", attachments),
+  #    attachments = gsub(" +", " ", attachments),
+  #    attachments = trimws(attachments)
+  #  ) %>% 
+    # combine all organizer columns and do some basic cleansing
+    unite(organizer, org, sep = " ", remove = T) %>%
+    mutate(
+      organizer = gsub("NA", "", organizer),
+      organizer = gsub(" +", " ", organizer),
+      organizer = trimws(organizer)
+    ) #%>%
+    # combne all pin columns
+   # unite(pin, pin, sep = " ", remove = T)
+  
+  # there are multiple columns w datetimes depending on 
+  # combining them into one
+  # get indices of all rows whch contain NAs in original date time columns
+  NAindices <- which(is.na(df$DTEND), arr.ind=TRUE)
+  # convert to character and add NA sign for rccp script
+  df[c("DTSTART", "DTEND")] <- df %>%
+    select(c("DTSTART", "DTEND")) %>%
+    mutate(
+      DTSTART = replace_na(as.character(DTSTART), "catchME"),
+      DTEND = replace_na(as.character(DTEND), "catchME")
+    ) 
+  
+  # initialize empty vectors
+  dtstart <- character()
+  dtend <- character()
+  
+  for (el in all_) {
+    if (grepl("DTSTART;TZID", el) == T){
+      dtstart <- c(dtstart, el)
+    }
+  }
+  
+  for (el in all_) {
+    if (grepl("DTEND;TZID", el) == T){
+      dtend <- c(dtend, el)
+    }
+  }
+  
+  # get all relevant date time columns in one vector
+  allCols <- c(dtstart, dtend)
+  df[allCols] <- df %>%
+    mutate_at(allCols, as.character) %>% 
+    select(allCols) %>% 
+    replace(is.na(.), "catchME") %>% 
+    mutate_at(allCols, as.character)
+
+  # run rcpp function
+  a <- getStartEnd(df, dtstart, dtend)
+  # convert result from factors to character
+  a <- a %>% 
+    mutate_all(as.character)
+  # bring columns to same format
+  a[NAindices,] <- lapply(lapply(a[NAindices,], strptime, format="%Y%m%dT%H%M%S"), as.character)
+  # convert to date & reassign
+  df[c("DTSTART", "DTEND")] <- a %>% 
+    mutate_all(as.POSIXct)
+  
+  # create vectors to be used as columns in result df
+  meetingStart <- df$DTSTART
+  meetingEnd <- df$DTEND
+  durationMinutes <- meetingEnd - meetingStart
+  durationHours <- round((meetingEnd - meetingStart)/60, 2)
+  meetingDate <- as.Date(meetingStart)
+  meetingOrganizer <- df$organizer
+  meetingParticipants <- df$attendees
+  meetingTitle <- df$SUMMARY
+  meetingDescription <- df$DESCRIPTION
+  #meetingDescriptionHTML <- ics_df$`X-ALT-DESC;FMTTYPE=text/html`
+  meetingId <- ics_df$UID
+  meetingUpdateId <- paste0(ics_df$UID, "xyz")
+  meetingLocation <- df$LOCATION
+  
+  # convert to df
+  calendarDF <- data.frame(col1=meetingStart, col2=meetingEnd, col3=durationMinutes, 
+                           col4=durationHours, col5=meetingDate, col6=meetingOrganizer,
+                           col7=meetingTitle, col8=meetingDescription, col9=meetingLocation,
+                          # col10=meetingDescriptionHTML, 
+                           co10=meetingId,
+                           col1=meetingUpdateId, stringsAsFactors = F
+  )
+  
+  colnames(calendarDF) <- c("meetingStart", "meetingEnd", "durationMinutes", 
+                            "durationHours", "meetingDate", "meetingOrganizer",
+                            "meetingTitle", "meetingDescription", "meetingLocation",
+                         #   "meetingDescriptionHTML",
+                            "meetingId", "meetingUpdateId"
+  )
+  cols = colnames(calendarDF)
+  allPaste <- apply( calendarDF[ , cols ] , 1 , paste , collapse = "-" )
+  hash <- lapply(allPaste, digest, algo="md5", serialize=F)
+  calendarDF$meetingId <- unlist(hash)
+  calendarDF$meetingUpdateId <- calendarDF$meetingId
+  cleanParts <-  function(x) {
+    res <- x[unlist(sapply(x, str_detect, "@"))]
+    return(res)
+  }
+  addOrg <-  function(x) {
+    res <- append(x["meetingParticipants"][[1]], x["meetingOrganizer"][[1]])
+    return(res)
+  }
+  df$attendees <- lapply(df$attendees, lava::trim, all=T)
+  calendarDF$meetingOrganizer <- sapply(calendarDF$meetingOrganizer, lava::trim, all=T)
+  df$attendees <- lapply(df$attendees, cleanParts)
+  # add final participants column consisting of list of vectors
+  calendarDF$meetingParticipants <- df$attendees
+  lapply(calendarDF, addOrg) 
+  # define helpder function and apply to get meeting sze
+  size <-  function(x) {
+    parts = x["meetingParticipants"][[1]]
+    return(sum(str_count(parts, ".+@")))
+  }
+  calendarDF$meetingSize <- apply(calendarDF, 1, size)
+  
+  # add weekday 
+  calendarDF$meetingWeekday <- weekdays(calendarDF$meetingDate)
+  
+  # extern count
+  external <-  function(x) {
+    parts = x["meetingParticipants"][[1]]
+    return(sum(str_count(parts, "^(?!.*(@deutschebahn.com|@deutschebahn-extern.com)).*@")))
+  }
+  calendarDF$meetingExternalCount <- apply(calendarDF, 1, external)
+  calendarDF$meetingTitle <- as.character(calendarDF$meetingTitle)
+  calendarDF$meetingTitle[calendarDF$meetingTitle == ""] <- "empty"
+  calendarDF$meetingTitle[is.na(calendarDF$meetingTitle)] <- "empty"
+  
+  # repeating itself?
+  repeaTable <- table(calendarDF$meetingTitle)
+  repeating <-  function(x) {
+    title = x[["meetingTitle"]]
+    print(title)
+    names(title %in% repeaTable)
+    print('-----')
+    count_ <- repeaTable[[title]]
+    if (count_ > 1) {
+      returnVal = 1
+    } else {
+      returnVal = 0
+      }
+    return(returnVal)
+  }
+  calendarDF$meetingRepeat <- apply(calendarDF, 1, repeating)
+  
+  # set in object
+  object$calendarData <- calendarDF
+  return(object)
+}
+# FUNCTION: determine longest streak LENGTH (NEEDS WORK) ---------------------------------------------
+organizerStreakLength <- function(object, organizerEmail, minuteLimit) {
+  print("Calling the base longestOrganizerStreakLength function")
+  UseMethod("organizerStreakLength", object)
+}
+
+organizerStreakLength.default <- function(object, organizerEmail, minuteLimit){
+  print("You need to pass a calanyzR object to this method.")
+  return("object")
+}
+
+organizerStreakLength.calanyzR <- function(object, organizerEmail, minuteLimit) {
+  
+  # make email searchable
+  organizerEmail <- str_c("mailto:", organizerEmail)
+  # get subset of dataframe and sort to fnd streak
+  t <- object$calendarData %>%
+        filter(meetingOrganizer==organizerEmail) %>%
+        arrange(meetingDate) %>%#
+        drop_na()
+  # reset row names after reordering
+  rownames(t) <- 1:nrow(t)
+  print("hereee")
+  # initialze  list to store and indicator
+  longestStreakDuration <- list()
+  onStreak = F
+  # loop through data 
+  for (row in 1:nrow(t)) {
+    # if the meeting length is not available for some reason
+    if (is.na(as.integer(t[row, "durationMinutes"]))) {
+      # do nothing
+      # if meetng length is not NA do next tests
+    } else {
+      # if meeting length is longer than limit...
+      if (as.integer(t[row, "durationMinutes"]) > minuteLimit) {
+        #  and you were on streak, then finish the streak, add it to list, and end streak
+        if (onStreak == T){
+          getLength = length(longestStreakDuration)
+          longestStreakDuration[[getLength]] = c(longestStreakDuration[[getLength]], as.character(t[row, "meetingDate"]))
+          onStreak = F}
+        # and you were NOT on a streak, then contnue streak and increase count
+      } else {
+        date <- as.character(t[row, "meetingDate"])
+        if (as.character(t[row, "meetingDate"]) %in% names(longestStreakDuration)){
+          longestStreakDuration[[date]][1] = longestStreakDuration[[date]][1] + 1
+          onStreak = T
+        } else {
+          longestStreakDuration[as.character(t[row, "meetingDate"])] = c(1)
+          onStreak = T}
+      }
+    }
+  }
+  
+  # initialize parameters that are going to be returned
+  max <-  0
+  tempMax <- 0
+  longName <-  NULL
+  wasOne <- NULL
+  # find the length of thelongest streak as well as start and end dates
+  for (i in 1:length(longestStreakDuration)) {
+    # for first iteratiion add first date as start date
+    # otherwise set the start date when previous list element wasof len 2
+    lenCurrent <- length(longestStreakDuration[[i]])
+    if (i == 1) {
+      startDate <- names(longestStreakDuration)[1]
+    } else if (wasOne == F) {
+      startDate <- names(longestStreakDuration)[i]
+    }
+    # compute length and capture return vals
+    if (lenCurrent == 1) {
+      tempMax <- tempMax + as.numeric(longestStreakDuration[[i]])
+      wasOne <- T
+    } else {
+      tempMax <- tempMax + as.numeric(longestStreakDuration[[i]][1])
+      if (tempMax > max) {
+        max <- tempMax
+        tempMax <- 0
+        endDate <- names(longestStreakDuration)[i]
+        wasOne <- F
+      }
+    }
+  }
+  
+  # return results
+  list(
+    longestStreakLength_inMeetings=max,
+    startDate=startDate,
+    endDate=endDate
+  )
+}
+# FUNCTION: determine longest participant streak regarding PARTCIPANTS (NEEDS WORK) ----------
+organizerStreakSize <- function(object, organizerEmail, lowerSizeLimit, upperSizeLimit) {
+  print("Calling the base organizerStreakSize function")
+  UseMethod("organizerStreakSize", object)
+}
+
+organizerStreakSize.default <- function(object, organizerEmail, lowerSizeLimit, upperSizeLimit){
+  print("You need to pass a calanyzR object to this method.")
+  return("object")
+}
+
+organizerStreakSize.calanyzR <- function(object, organizerEmail, lowerSizeLimit, upperSizeLimit) {
+  # make email searchable
+  organizerEmail <- str_c("mailto:", organizerEmail)
+  # get subset of dataframe and sort to fnd streak
+  t <- object$calendarData %>%
+    filter(meetingOrganizer==organizerEmail) %>%
+    arrange(meetingDate) %>%#
+    drop_na()
+  # reset row names after reordering
+  rownames(t) <- 1:nrow(t)
+  
+  # initialize list to store results
+  longestStreakDuration = list()
+  onStreak = F
+  for (row in 1:nrow(t)) {
+    # check for 7 plus minus two range
+    if ((as.integer(t[row, "meetingSize"]) >= lowerSizeLimit) & (as.integer(t[row, "meetingSize"]) <= upperSizeLimit)) {
+      if (onStreak == T){
+        getLength = length(longestStreakDuration)
+        longestStreakDuration[[getLength]] = c(longestStreakDuration[[getLength]], as.character(t[row, "meetingDate"]))
+        onStreak = F}
+    } else {
+      date <- as.character(t[row, "meetingDate"])
+      if (as.character(t[row, "meetingDate"]) %in% names(longestStreakDuration)){
+        longestStreakDuration[[date]][1] = as.integer(longestStreakDuration[[date]][1]) + 1
+        onStreak = T
+      } else {
+        longestStreakDuration[as.character(t[row, "meetingDate"])] = c(1)
+        onStreak = T}
+    }
+  }
+  
+  # initialize parameters that are going to be returned
+  max <-  0
+  tempMax <- 0
+  longName <-  NULL
+  wasOne <- NULL
+  # find the length of thelongest streak as well as start and end dates
+  for (i in 1:length(longestStreakDuration)) {
+    # for first iteratiion add first date as start date
+    # otherwise set the start date when previous list element wasof len 2
+    lenCurrent <- length(longestStreakDuration[[i]])
+    if (i == 1) {
+      startDate <- names(longestStreakDuration)[1]
+    } else if (wasOne == F) {
+      startDate <- names(longestStreakDuration)[i]
+    }
+    # compute length and capture return vals
+    if (lenCurrent == 1) {
+      tempMax <- tempMax + as.numeric(longestStreakDuration[[i]])
+      wasOne <- T
+    } else {
+      tempMax <- tempMax + as.numeric(longestStreakDuration[[i]][1])
+      if (tempMax > max) {
+        max <- tempMax
+        tempMax <- 0
+        endDate <- names(longestStreakDuration)[i]
+        wasOne <- F
+      }
+    }
+  }
+  
+  # return results
+  list(
+    longestStreakLength_inMeetings=max,
+    startDate=startDate,
+    endDate=endDate
+  )
+}
+# FUNCTION: percent of meetings by organizers that contained an agenda --------------------------
+organizerAgendaShare <- function(object, organizerEmail) {
+  print("Using the base organizerAgendaShare method.")
+  UseMethod("organizerAgendaShare", object)
+}
+
+organizerAgendaShare.default <- function(object, organizerEmail) {
+  print("You need to pass a calanyzR object to this method.")
+  return("object")
+}
+
+organizerAgendaShare.calanyzR <- function(object, organizerEmail) {
+  # make email searchable
+  organizerEmail <- str_c("mailto:", organizerEmail)
+  # get subset of dataframe and sort to fnd streak
+  t <- object$calendarData %>%
+    filter(meetingOrganizer==organizerEmail) %>%
+    arrange(meetingDate) %>%#
+    drop_na()
+  # reset row names after reordering
+  rownames(t) <- 1:nrow(t)
+  
+  # count number of meetings w no description
+  noDescription <- 0
+  for (row in 1:nrow(t)) {
+    element <- as.character(t$meetingDescription[row][1])
+    if ((is.na(element)) || (str_sub(element, 1, 1) == "-") || (grepl("Fixed Call", element))) {
+      noDescription <- noDescription + 1
+    } else {
+    }
+  }
+  # return share
+  paste(round(noDescription/nrow(t)*100, 2), "%")
+ # return("object")
+}
+
+# FUNCTION: plot hours over time -------------------------------------------------------
+plot.calanyzR <- function(object) {
+  # prepare data and remove super long meetings for better plot
+  calendarDFPlot <- object$calendarData %>% 
+                      mutate(durationHoursPlot = replace(durationHours, durationHours > 15, NA)) %>%
+                      select(meetingDate, durationHoursPlot) 
+  # convert to time series object
+  forPlot <- na.omit(calendarDFPlot)
+  forPlot <- xts(forPlot$durationHoursPlot, order.by = forPlot$meetingDate)
+  colnames(forPlot) <- "Hours of Meetings" 
+  # create plot
+  dygraph(forPlot, main = "Hours of Meetings Over Time", ylab = "Hours") %>%
+    dyRangeSelector(fillColor = "#AD1B02", strokeColor = "#AD1B02") %>%
+    dyOptions(colors = c("#AD1B02"), fillGraph = F, fillAlpha =0.5)
+}
+
+# FUNCTION: Average meeting size ----------------
+avgSize <- function(object, bigSize) {
+  print("Calling the base avgSize function")
+  UseMethod("avgSize", object)
+}
+
+avgSize.default <- function(object, bigSize) {
+  print("You must pass a calanyzR object to ths method.")
+  return("object")
+}
+
+avgSize.calanyzR <- function(object, bigSize) {
+  # avg meeting size including big meetings
+  bigAvg <- mean(object$calendarData$meetingSize, na.rm = T)
+  # avg meeting size excluding big meetings
+  calendarDFTemp <- object$calendarData %>% 
+                      mutate(adjMeetingSize = replace(meetingSize, meetingSize > bigSize, NA))
+
+  smallAvg <- mean(calendarDFTemp$adjMeetingSize, na.rm = T)
+  #return results
+  return(
+    list(
+    includingBigMeetings = bigAvg,
+    excludingBigMeetings = smallAvg
+    )
+  )
+}
+
+# FUNCTION: share of meetings less than X hours -------------
+shareLessThanX <- function(object, hourLimit) {
+  print("Calling the base shareLessThanX function")
+  UseMethod("shareLessThanX", object)
+}
+
+shareLessThanX.default <- function(object, hourLimit) {
+  print("You must pass a calanyzR object to ths method.")
+  return("object")
+}
+
+shareLessThanX.calanyzR <- function(object, hourLimit) {
+    # group by days and get daiily sum
+  t <- object$calendarData %>% 
+        group_by(meetingDate) %>% 
+        summarise(n = sum(as.integer(durationHours)))
+  # get subset where meeting sum less than X hours
+  t2 <- subset(t, n <= hourLimit)
+  # return result
+  round(nrow(t2)/nrow(t), 2)
+}
+
+# FUNCTION: total time in secs, mins, hs, days ----------------------------------------
+totalTime <- function(object) {
+  print("Calling the base totalTime function")
+  UseMethod("totalTime", object)
+}
+
+totalTime.default <- function(object) {
+  print("You must pass a calanyzR object to ths method.")
+  return("object")
+}
+
+totalTime.calanyzR <- function(object) {
+  # compute totals
+  list(
+  seconds = sum(as.integer(object$calendarData$durationMinutes), na.rm=T) * 60,
+  minutes = sum(as.integer(object$calendarData$durationMinutes), na.rm=T),
+  hours =  sum(as.integer(object$calendarData$durationHours), na.rm=T),
+  days = sum(as.integer(object$calendarData$durationHours), na.rm=T)/24
+  )
+}
+# FUNCTION: average meeting length ----------------------------------------
+avgLength <- function(object, hourLimit) {
+  print("Calling the base avgLength function")
+  UseMethod("avgLength", object)
+}
+
+avgLength.default <- function(object, hourLimit) {
+  print("You must pass a calanyzR object to ths method.")
+  return("object")
+}
+
+avgLength.calanyzR <- function(object, hourLimit) {
+  # exclude meetings longer than hourLimit
+  calendarDF <-  object$calendar %>% 
+    mutate(durationHoursPlot = replace(durationHours, durationHours > hourLimit, NA)) 
+  # return mean
+  mean(as.integer(calendarDF$durationHoursPlot), na.rm=T)*60
+}
+# FUNCTION: get number of unique participants ---------------------------------
+uniqueParticipants <- function(object, numberOrNames) {
+  print("Calling the base uniqueParticipants function")
+  UseMethod("uniqueParticipants", object)
+}
+
+uniqueParticipants.default <- function(object, numberOrNames) {
+  print("You must pass a calanyzR object to ths method.")
+  return("object")
+}
+
+uniqueParticipants.calanyzR <- function(object, numberOrNames) {
+  # get results ans store
+  results <- list(
+    number = length(unique(unlist(object$calendarData$meetingParticipants))),
+    names = unique(unlist(object$calendarData$meetingParticipants))
+  )
+  # return desired result
+  if (numberOrNames == "number") {
+    return(results$number)
+  } else if (numberOrNames == "names") {
+    return(results$names)
+  } else {
+    return("Invalid input")
+  }
+}
+# FUNCTION: top X other participants stats (NEEDS TO BE COMMENTED AND IMPROVED) -----------------
+fellowParticipantsStats <- function(object, number) {
+  print("Calling the base fellowParticipantsStats function")
+  UseMethod("fellowParticipantsStats", object)
+}
+
+fellowParticipantsStats.default <- function(object, number) {
+  print("You must pass a calanyzR object to ths method.")
+  return("object")
+}
+
+fellowParticipantsStats.calanyzR <- function(object, number) {
+  calendarDF <- object$calendarData
+  count_ <- as.data.frame(table(unlist(calendarDF$meetingParticipants)))
+  count_ <- count_[order(count_$Freq, decreasing = T),][2:number,]
+  count_$duration <- 0
+  count_$totalSize <- 0
+  
+  ii = 1
+  for (name in count_$Var1) {
+    for (i in 1:nrow(calendarDF)) {
+      meetingAttendees <- calendarDF$meetingParticipants[[i]]
+      if (name %in% meetingAttendees) {
+        if (!is.na(as.integer(calendarDF[i, "durationMinutes"]))) {
+          count_[ii, "duration"] = count_[ii, "duration"] + as.integer(calendarDF[i, "durationMinutes"]) }
+        count_[ii, "totalSize"] = count_[ii, "totalSize"] + length(unlist(calendarDF[i, "meetingParticipants"]))
+      }
+    }
+    ii = ii + 1
+  }
+  
+  count_ <- count_ %>% mutate(durationHours = duration/60) %>% 
+    mutate(percentTotalDuration = duration/sum(as.integer(calendarDF$durationMinutes), na.rm = T)) %>%
+    mutate(percentTotalNumberMeetings = Freq/length(calendarDF)) %>%
+    mutate(avgSize = totalSize/Freq)
+  
+  
+  count_$Var1 <- sapply(count_[,1], function(x) str_match(x, ":(.*)(?=@)")[2])
+  count_$Var1 <- sapply(count_[,1], function(x) strsplit(x, ".", fixed = TRUE))
+  count_$Var1 <- sapply(count_[,1], function(x) paste(x, collapse = " "))
+  count_$Var1 <- toTitleCase(count_$Var1)
+  count_
+}
+# FUNCTION: own meeting stats (NEEDS TO BE COMMENTED AND IMPROVED) ----------
+ownMeetingStats <- function(object) {
+  print("Calling the base ownMeetingStats function")
+  UseMethod("ownMeetingStats", object)
+}
+
+ownMeetingStats.default <- function(object) {
+  print("You must pass a calanyzR object to ths method.")
+  return("object")
+}
+
+ownMeetingStats.calanyzR <- function(object) {
+  calendarDF <- object$calendarData
+  con<-file(object$path)
+  open(con)
+  a <- read.table(con,skip=5,nrow=1)[,"V1"]
+  close(con)
+  a <- as.character(a)
+  a <- str_extract(a, ":([^;]*)")
+  a <- substr(a, 2, 400)
+  a <- paste0("mailto:", a)
+  
+  count2 <- as.data.frame(table(unlist(calendarDF$meetingOrganizer)))
+  print(count2)
+  count2 <- subset(count2, grepl("mailto:.+@pwc.com", Var1))
+  count2 <- subset(count2, Var1 == a)
+  count2$duration <- 0
+  count2$totalSize <- 0
+  
+  ii = 1
+  for (name in count2$Var1) {
+    print(name)
+    for (i in 1:nrow(calendarDF)) {
+      organizer <- calendarDF$meetingOrganizer[i]
+      if (name == organizer) {
+        if (!is.na(as.integer(calendarDF[i, "durationMinutes"]))) {
+          count2[ii, "duration"] = count2[ii, "duration"] + as.integer(calendarDF[i, "durationMinutes"]) }
+        if (!is.na(length(calendarDF[i, "meetingParticipants"][[1]]))) {
+          count2[ii, "totalSize"] = count2[ii, "totalSize"] + length(calendarDF[i, "meetingParticipants"][[1]]) }
+      }
+    }
+    ii = ii + 1
+  }
+  
+  count2 <- count2 %>% mutate(durationHours = duration/60) %>% 
+    mutate(percentTotalDuration = duration/sum(as.integer(calendarDF$durationMinutes), na.rm = T)) %>%
+    mutate(percentTotalNumberMeetings = Freq/length(calendarDF)) %>%
+    mutate(avgSize = totalSize/Freq)
+  
+  count2 <- count2[ ,!(colnames(count2) %in% c("percentTotalDuration", "duration"))]
+  count2$durationHours <- round(count2$durationHours, 2)
+  count2$avgSize <- round(count2$avgSize, 2)
+  count2$percentTotalNumberMeetings <- paste(count2$percentTotalNumberMeetings, "%")
+  count2$Var1 <- sapply(count2[,1], function(x) str_match(x, ":(.*)(?=@)")[2])
+  count2$Var1 <- sapply(count2[,1], function(x) strsplit(x, ".", fixed = TRUE))
+  count2$Var1 <- sapply(count2[,1], function(x) paste(x, collapse = " "))
+  count2$Var1 <- toTitleCase(count2$Var1)
+  colnames(count2) <- c("Organizer", "# of Meetings", "# of Participants", "Total Duration", "Share of Your Total Meeings", "Average Size")
+  count2
+  
+}
+
+# FUNCTION: top X organizers meeting stats ------------------
+organizerStats <- function(object, number) {
+  print("Calling the base organizerStats function")
+  UseMethod("organizerStats", object)
+}
+
+organizerStats.default <- function(object, number) {
+  print("You must pass a calanyzR object to ths method.")
+  return("object")
+}
+
+organizerStats.calanyzR <- function(object, number) {
+  calendarDF <- object$calendarData
+  count2 <- as.data.frame(table(unlist(calendarDF$meetingOrganizer)))
+  count2 <- subset(count2, grepl("mailto:.+@pwc.com", Var1))
+  count2 <- count2[order(count2$Freq, decreasing = T),][1:number,]
+  count2$duration <- 0
+  count2$totalSize <- 0
+  
+  ii = 1
+  for (name in count2$Var1) {
+    print(name)
+    for (i in 1:nrow(calendarDF)) {
+      organizer <- calendarDF$meetingOrganizer[i]
+      if (name == organizer) {
+        if (!is.na(as.integer(calendarDF[i, "durationMinutes"]))) {
+          count2[ii, "duration"] = count2[ii, "duration"] + as.integer(calendarDF[i, "durationMinutes"]) }
+        if (!is.na(length(calendarDF[i, "meetingParticipants"][[1]]))) {
+          count2[ii, "totalSize"] = count2[ii, "totalSize"] + length(calendarDF[i, "meetingParticipants"][[1]]) }
+      }
+    }
+    ii = ii + 1
+  }
+  
+  count2 <- count2 %>% mutate(durationHours = duration/60) %>% 
+    mutate(percentTotalDuration = duration/sum(as.integer(calendarDF$durationMinutes), na.rm = T)) %>%
+    mutate(percentTotalNumberMeetings = Freq/length(calendarDF)) %>%
+    mutate(avgSize = totalSize/Freq)
+  
+  count2 <- count2[ ,!(colnames(count2) %in% c("percentTotalDuration", "duration"))]
+  count2$durationHours <- round(count2$durationHours, 2)
+  count2$avgSize <- round(count2$avgSize, 2)
+  count2$percentTotalNumberMeetings <- paste(count2$percentTotalNumberMeetings, 2, "%")
+  count2$Var1 <- sapply(count2[,1], function(x) str_match(x, ":(.*)(?=@)")[2])
+  count2$Var1 <- sapply(count2[,1], function(x) strsplit(x, ".", fixed = TRUE))
+  count2$Var1 <- sapply(count2[,1], function(x) paste(x, collapse = " "))
+  library(tools)
+  count2$Var1 <- toTitleCase(count2$Var1)
+  colnames(count2) <- c("Organizer", "# of Meetings", "# of Participants", "Total Duration", "Share of Your Total Meeings", "Average Size")
+  count2
+}
+# FUNCTION: share of unique agendas for organizer ----------
+uniqueAgendaShare <- function(object, email) {
+  print("Calling the base uniqueAgendaShare function")
+  UseMethod("uniqueAgendaShare", object)
+}
+
+uniqueAgendaShare.default <- function(object, email) {
+  print("You must pass a calanyzR object to ths method.")
+  return("object")
+}
+
+uniqueAgendaShare.calanyzR <- function(object, email) {
+  # make email searchable
+  a <- str_c("mailto:", email)
+  calendarDF <- object$calendarData
+  subDF <- subset(calendarDF, meetingOrganizer==a)
+  subDF %>% group_by(meetingDescription) %>% summarize(count=n())
+  uniq <- nrow(subDF)
+  for (i in 1:nrow(subDF)) {
+    curr <- subDF[i,]$meetingDescription
+    firs <- substr(as.character(curr), 1, 1)
+    
+    if (firs == '-') {
+      uniq = uniq - 1
+    }
+  }
+  paste(round(uniq/nrow(subDF)*100, 2), "%")
+}
+# FUNCTION: R implementation of edge list creation (CURRENTLY BAD BUT 2nd BEST) -------------
+createEdgeListR <- function(object) {
+  print("Calling the base createEdgeListR function")
+  UseMethod("createEdgeListR", object)
+}
+
+createEdgeListR.default <- function(object) {
+  print("You must pass a calanyzR object to ths method.")
+  return("object")
+}
+
+createEdgeListR.calanyzR <- function(object) {
+  # very raw implemenattion
+  # C++ implementation currently even worse
+  # needs rethinking
+  calendarDF <- object$calendarData#object$calendarData
+  
+  sna <- data.frame(one = character(),
+                    two = character(),
+                    intensity = integer(),
+                    stringsAsFactors = F)
+  
+  len_ <- nrow(calendarDF)
+  i <- 1
+  for (meeting in calendarDF$meetingParticipants){
+    print(round(i/len_*100, 2))
+    for (person in meeting) {
+      all <- meeting
+      allExcept <- all[!all %in% person]
+      for (otherPerson in allExcept) {
+        if (nrow(sna[(sna$one == person)&(sna$two == otherPerson), ])  > 0) {
+          sna[(sna$one == person)&(sna$two == otherPerson), "intensity"] = sna[(sna$one == person)&(sna$two == otherPerson), "intensity"] + 1  
+        }  else if (nrow(sna[(sna$two == person)&(sna$one == otherPerson), ])  > 0) {
+          sna[(sna$two == person)&(sna$one == otherPerson), "intensity"] = sna[(sna$two == person)&(sna$one == otherPerson), "intensity"] + 1 
+        } else {
+          len <- length(sna$one) +1
+          sna[len, "one"] = person
+          sna[len, "two"] = otherPerson
+          sna[len, "intensity"] = 1
+          len <- len + 1
+        }
+      }
+    }
+    i <- i + 1
+  }
+  sna$intensity <- sna$intensity/2
+  sna <- sna[order(-sna$intensity),]
+  # assign result
+  # set in object
+  object$edgeList <- sna
+  return(object)
+}
+# FUNCTION: R + Rcpp combination to create edgelist (WAY FASTER) ----------
+getEdgeListR <- function(object) {
+  print("Calling the base getEdgeListR function")
+  UseMethod("getEdgeListR", object)
+}
+
+getEdgeListR.default <- function(object) {
+  print("You must pass a calanyzR object to ths method.")
+  return("object")
+}
+
+getEdgeListR.calanyzR <- function(object) {
+  # get column of vectors w meetings
+  meetings <- object$calendarData$meetingParticipants
+  meetings <- Filter(function(x) length(x) >= 2, meetings)
+  # compute all possible combinations ans store in a list
+  # since lists are more memory efficient than vectors
+  from <- list()
+  to <- list()
+  i <- 1
+  for (el in meetings) {
+    res <- RcppAlgos::comboGeneral(el, 2, Parallel = T)
+    from[[i]] <- res[,1]
+    to[[i]] <- res[,2]
+    i <- i + 1
+  }
+  # turn to edgelist 
+  sna <- data.frame(
+    from = unlist(from),
+    to = unlist(to)
+  )
+  graph <- graph_from_data_frame(sna)
+  E(graph)$weight <- 1
+  graph <- simplify(graph, edge.attr.comb=list(weight="sum"))
+  a <- as.data.frame(get.edgelist(graph))
+  a$intensity <- E(graph)$weight
+  colnames(a) <- c("from", "two", "intensity")
+  object$edgeList <- a
+  return(object)
+}
+  # FUNCTION: C++ implementatioin of edge list creation (SLOW) ------------------
+createEdgeListC <- function(object) {
+  print("Calling the base createEdgeListC function")
+  UseMethod("createEdgeListC", object)
+}
+
+createEdgeListC.default <- function(object) {
+  print("You must pass a calanyzR object to ths method.")
+  return("object")
+}
+
+createEdgeListC.calanyzR <- function(object) {
+  # very raw implemenation
+  one = character()
+  two = character()
+  intensity = integer()
+  sna <- reateEdgeList(one, two, intensity, calendarDF)
+  # set in object
+  sna$intensity <- sna$intensity/2
+  sna <- sna[order(-sna$intensity),]
+  object$edgeList <- sna
+  return(object)
+}
+# FUNCTION: Plot network using visNet ------------
+plotNetwork <- function(object, height="600px", width="100%", color="maroon", largeSize=10) {
+  print("Calling the base plotNetwork function")
+  UseMethod("plotNetwork", object)
+}
+
+plotNetwork.default <- function(object, height="600px", width="100%", color="maroon", largeSize=10) {
+  print("You must pass a calanyzR object to ths method.")
+  return("object")
+}
+
+plotNetwork.calanyzR <- function(object, height="600px", width="100%", color="maroon", largeSize=10) {
+  # retrieve edge list from calanyzR object
+  sna <- object$edgeList
+  # assign column names that are interpretable by igraph
+  colnames(sna) <- c("from", "to", "weight")
+  # exclude large meetings for plotting performance depending on network size
+  test <- subset(sna, weight > largeSize)
+  # create igraph object
+  graph <- graph.data.frame(test, directed=F)
+  graph <- simplify(graph)
+  networks <- clusters(as.undirected(graph))
+  V(graph)$network <- networks$membership
+  # create visNetwork handable objects
+  nodes <- data.frame(id = V(graph)$name, title = V(graph)$name, group = V(graph)$network)
+  nodes <- nodes[order(nodes$id, decreasing = F),]
+  nodes$value <- 1
+  edges <- get.data.frame(graph, what="edges" )
+  
+  # plot network using visNetwork
+  visNetwork(nodes, edges, height = height, width = width) %>%
+    visNodes(shape="dot",size=1, value = 1) %>%
+    visPhysics(timestep = 0.1) %>%
+    visOptions(highlightNearest = TRUE, nodesIdSelection = TRUE)%>%
+    visGroups(groupname = "1", color = color) 
+}
+# FUNCTION: Get edge density of network --------------
+edgeDensity <- function(object) {
+  print("Calling the base edgeDensity function")
+  UseMethod("edgeDensity", object)
+}
+
+edgeDensity.default <- function(object) {
+  print("You must pass a calanyzR object to ths method.")
+  return("object")
+}
+
+edgeDensity.calanyzR <- function(object) {
+  # retrieve edge list from calanyzR object
+  sna <- object$edgeList
+  # assign column names that are interpretable by igraph
+  colnames(sna) <- c("from", "to", "weight")
+  # create igraph object
+  graph <- graph.data.frame(test, directed=F)
+  graph <- simplify(graph)
+  # compute and return density
+  dens = round(as.double(edge_density(graph))*100, 2)
+  paste(dens, "%") 
+}
+# FUNCTION: Most important contact ------------------
+mostImportantContact <- function(object, largeSize) {
+  print("Calling the base mostImportantContact function")
+  UseMethod("mostImportantContact", object)
+}
+
+mostImportantContact.default <- function(object, largeSize) {
+  print("You must pass a calanyzR object to ths method.")
+  return("object")
+}
+
+mostImportantContact.calanyzR <- function(object, largeSize) {
+  # retrieve edge list from calanyzR object
+  sna <- object$edgeList
+  # assign column names that are interpretable by igraph
+  colnames(sna) <- c("from", "to", "weight")
+  # create igraph object
+  test <- subset(sna, weight > largeSize)
+  graph <- graph.data.frame(test, directed=F)
+  cent_degree <- centralization.degree(graph)$res
+  max_ = cent_degree %>% match(x = max(cent_degree))
+  cent_degree[max_] <- 1
+  newMax = cent_degree %>% match(x = max(cent_degree))
+  result <- V(graph)$name[newMax]
+  result <-  str_match(result, ":(.*)(?=@)")[2]
+  result <-  strsplit(result, ".", fixed = TRUE)
+  result <-  paste(result[[1]][1], result[[1]][2])
+  result <- toTitleCase(result)
+  result
+}
+# FUNCTION: plot communities in your network ------
+plotCommunities <- function(object) {
+  print("Calling the base plotCommunities function")
+  UseMethod("plotCommunities", object)
+}
+
+plotCommunities.default <- function(object) {
+  print("You must pass a calanyzR object to ths method.")
+  return("object")
+}
+
+plotCommunities.calanyzR <- function(object) {
+  # retrieve edgle list
+  sna <- object$edgeList
+  colnames(sna) <- c("from", "to", "weight")
+  test <- subset(sna, weight > 10)
+  graph <- graph.data.frame(test, directed=F)
+  graph <- simplify(graph)
+  fc <- fastgreedy.community(graph)
+  V(graph)$community <- fc$membership
+  nodes <- data.frame(id = V(graph)$name, title = V(graph)$name, group = V(graph)$community)
+  nodes <- nodes[order(nodes$id, decreasing = F),]
+  edges <- get.data.frame(graph, what="edges")
+  
+  visNetwork(nodes, edges) %>%
+    visPhysics(timestep = 0.1) %>%
+    visOptions(highlightNearest = TRUE, nodesIdSelection = TRUE)
+}
+# FUNCTION: get coffee dates and plot them --------------------------
+coffeDates <- function(object, coffeeDateSize, plot=T, text=T) {
+  print("Calling the base coffeDates function")
+  UseMethod("coffeDates", object)
+}
+
+coffeDates.default <- function(object, coffeeDateSize, plot=T, text=T) {
+  print("You must pass a calanyzR object to ths method.")
+  return("object")
+}
+
+coffeDates.calanyzR <- function(object, coffeeDateSize, plot=T, text=T) {
+  # create igraph object from edge list
+  graph <- object$edgeList %>%
+    rename(
+      from = one,
+      to = two,
+      weight = intensity
+    ) %>%
+    filter(weight > 3) %>%
+    graph.data.frame(directed = F) %>%
+    simplify()
+  
+  # get fast greedy community numbers for created igraph and get lookup
+  fc <- fastgreedy.community(graph)
+  commLookup <- data.frame(name=fc$names, community=fc$membership)
+  # get nodes an d egdes dfs
+  nodes <- data.frame(id = V(graph)$name, title = V(graph)$name)%>%
+    filter(grepl("^mailto.*@pwc.com$", id)) %>%
+    arrange(id) %>%
+    #add lookup community to nodes df
+    merge(commLookup, by.x = "id", by.y = "name")
+  edges <- get.data.frame(graph, what="edges")
+  
+  # find out total sum of weight for each node on its edges
+  a <- edges %>%
+    group_by(from) %>% 
+    summarise(sum_ = sum(weight)) %>% 
+    arrange(desc(sum_))
+  b <- edges %>% 
+    group_by(to) %>% 
+    summarise(sum_ = sum(weight)) %>% 
+    arrange(desc(sum_))
+  
+  nodesWeightCommunity <- a %>%
+    merge(b, by.x = "from", by.y = "to") %>%
+    mutate(sum = sum_.x + sum_.y) %>%
+    merge(nodes, by.x = "from", by.y = "id") %>%
+    filter(from != object$ownerEmail)
+  
+  
+  # get top 10 people from each community (formerly t)
+  top10 <- nodesWeightCommunity %>% 
+    group_by(community) %>% 
+    top_n(10, sum) %>% 
+    arrange(desc(community))
+  
+  
+  # formerly maxCoffee, get total sums for importance of each group
+  sumWeightCommunity <- top10 %>% 
+    group_by(community) %>% 
+    summarise(n = sum(sum)) %>% 
+    arrange(desc(n))
+  
+  # get size of coffee date
+  selectedCoffeeNumber <- coffeeDateSize
+  # run algorithm based on selection
+  if (selectedCoffeeNumber == 2) {
+    # get top two communites
+    maxCommOne <- sumWeightCommunity$community[1]
+    maxCommTwo <- sumWeightCommunity$community[2]
+    
+    # find who is in those
+    maxCommOnePeople <- subset(top10, community == maxCommOne)%>%
+      arrange(desc(sum))
+    maxCommTwoPeople <- subset(top10, community == maxCommTwo)%>%
+      arrange(desc(sum))
+    
+    # initialize new dataframe to store results
+    newDF = data_frame()
+    row <- 1
+    # start for loop over selected contacts
+    for (i in 1:nrow(maxCommOnePeople)) {
+      # get person per person from first group
+      oneName <- as.character(maxCommOnePeople[i,]$from)
+      for (s in 1:nrow(maxCommTwoPeople)) {
+        # get person per person from second group
+        twoName <- as.character(maxCommTwoPeople[s,]$from)
+        # check if there already is an edge between the two
+        sumConns <- nrow(subset(edges, from==oneName & to==twoName)) + nrow(subset(edges, from==twoName & to==oneName))
+        # if there is an edge, set knowEachOther to T, otherwise F
+        if (sumConns > 0) {
+          knowEachOther = T
+        } else {
+          knowEachOther = F
+        }
+        # get total sum of weights of both contacts
+        totalWeight <- subset(top10, from==oneName)$sum + subset(top10, from==twoName)$sum
+        
+        # fill results into df
+        newDF[row, "from"] <- oneName
+        newDF[row, "to"] <- twoName
+        newDF[row, "weight"] <- totalWeight
+        newDF[row, "knowEachOther"] <- knowEachOther
+        
+        row <- row + 1
+      }
+    }
+    # only keep new edges that did not exist previously 
+    newDF <- subset(newDF, knowEachOther==FALSE) %>% 
+      arrange(desc(weight))
+    
+    # get two people and format string
+    recPersonOne <- newDF$from[1]%>% str_extract("(?<=:)(.*?)(?=@)") %>%
+      str_replace_all("\\.", " ") %>%
+      str_to_title()
+    recPersonTwo <- newDF$to[1]%>% str_extract("(?<=:)(.*?)(?=@)") %>%
+      str_replace_all("\\.", " ") %>%
+      str_to_title()
+    
+    # return text result if parameter is T
+    if (text == T) {
+      # return sentence based result
+      resultText <- paste("You should go for a coffee w", recPersonOne, "and", recPersonTwo)
+      print(resultText)
+    }
+    # plot result
+    # use another igraph object
+    graphCopy <- graph
+    # assign a value of 1 to all edges except the new one which will be highlighted 
+    E(graphCopy)$value <- 1
+    graphCopy <- add_edges(graphCopy, c(newDF$from[1], newDF$to[1]), value=300)
+    # et communities
+    fc <- fastgreedy.community(graph)
+    V(graphCopy)$community <- fc$membership
+    
+    nodes <- data.frame(id = V(graphCopy)$name, title = V(graphCopy)$name, group = V(graphCopy)$community)
+    nodes <- nodes[order(nodes$id, decreasing = F),]
+    edges <- get.data.frame(graphCopy, what="edges")
+    
+    # plot if param is T
+    if (plot == T) {
+      # plot visnetwork w visPhysics for stabilization purposes
+      visNetwork(nodes, edges) %>%
+        visPhysics(timestep = 0.1) %>%
+        visOptions(highlightNearest = TRUE, nodesIdSelection = TRUE)
+    }
+    
+  } else if (selectedCoffeeNumber == 3) {
+    # get top three communites
+    maxCommOne <- sumWeightCommunity$community[1]
+    maxCommTwo <- sumWeightCommunity$community[2]
+    maxCommThree <- sumWeightCommunity$community[3]
+    
+    # find who is in those
+    maxCommOnePeople <- subset(top10, community == maxCommOne)%>% arrange(desc(sum))
+    maxCommTwoPeople <- subset(top10, community == maxCommTwo)%>% arrange(desc(sum))
+    maxCommThreePeople <- subset(top10, community == maxCommThree)%>% arrange(desc(sum))
+    
+    # check if they are connected & store results in df
+    newDF2 = data_frame()
+    row <- 1
+    # start for loop over selected contacts
+    for (i in 1:nrow(maxCommOnePeople)) {
+      # get first person
+      oneName <- as.character(maxCommOnePeople[i,]$from)
+      for (s in 1:nrow(maxCommTwoPeople)) {
+        # get second name
+        twoName <- as.character(maxCommTwoPeople[s,]$from)
+        # get third name
+        for (z in 1:nrow(maxCommThreePeople)) {
+          threeName <- as.character(maxCommThreePeople[z,]$from)
+          # get sums of connections between all three
+          sumConns <- nrow(subset(edges, from==oneName & to==twoName)) + nrow(subset(edges, from==twoName & to==oneName)) + nrow(subset(edges, from==oneName & to==threeName)) + nrow(subset(edges, from==threeName & to==oneName)) + nrow(subset(edges, from==threeName & to==twoName)) + nrow(subset(edges, from==twoName & to==threeName))
+          # if there s connection set parameter to T to later eliminate them
+          if (sumConns > 0) {
+            knowEachOther = T
+          } else {
+            knowEachOther = F
+          }
+          # get total weight for connection
+          totalWeight <- subset(top10, from==oneName)$sum + subset(top10, from==twoName)$sum + subset(top10, from==threeName)$sum
+          
+          # fill into df
+          newDF2[row, "from"] <- oneName
+          newDF2[row, "to"] <- twoName
+          newDF2[row, "via"] <- threeName
+          newDF2[row, "weight"] <- totalWeight
+          newDF2[row, "knowEachOther"] <- knowEachOther
+          
+          row <- row + 1
+        }
+      }
+    }
+    #only keep those that arent connected
+    newDF2 <- subset(newDF2, knowEachOther==FALSE) %>% arrange(desc(weight))
+    
+    # get top three people
+    recPersonOne <- newDF2$from[1]
+    recPersonOnePrint <- newDF2$from[1] %>% str_extract("(?<=:)(.*?)(?=@)") %>%
+      str_replace_all("\\.", " ") %>%
+      str_to_title()
+    recPersonTwo <- newDF2$to[2]
+    recPersonTwoPrint <- newDF2$to[2]%>% str_extract("(?<=:)(.*?)(?=@)") %>%
+      str_replace_all("\\.", " ") %>%
+      str_to_title()
+    recPersonThree <- newDF2$via[3]
+    recPersonThreePrint <- newDF2$via[3]%>% str_extract("(?<=:)(.*?)(?=@)") %>%
+      str_replace_all("\\.", " ") %>%
+      str_to_title()
+    
+    if (text == T) {
+      # print result
+      resultText <- paste("You should go for a coffee w", recPersonOnePrint, "and", recPersonTwoPrint, "as well as", recPersonThreePrint)
+      print(resultText)
+      }
+    # use another igraph object
+    graphCopy <- graph
+    # assign a value of 1 to all edges except the new one which will be highlighted 
+    E(graphCopy)$value <- 1
+    graphCopy <- add_edges(graphCopy, c(recPersonOne,recPersonTwo), value=100)
+    graphCopy <- add_edges(graphCopy, c(recPersonThree,recPersonOne), value=100)
+    graphCopy <- add_edges(graphCopy, c(recPersonTwo,recPersonThree), value=100)
+    ## convert to VisNetwork-list
+    # et communities
+    V(graphCopy)$community <- fc$membership
+    
+    nodes <- data.frame(id = V(graphCopy)$name, title = V(graphCopy)$name, group = V(graphCopy)$community)
+    nodes <- nodes[order(nodes$id, decreasing = F),]
+    edges <- get.data.frame(graphCopy, what="edges")
+    
+    if (plot == T) {
+      # plot visnetwork w visPhysics for stabilization purposes
+      visNetwork(nodes, edges) %>%
+        visPhysics(timestep = 0.1) %>%
+        visOptions(highlightNearest = TRUE, nodesIdSelection = TRUE)
+    }
+    
+  } else if (selectedCoffeeNumber == 4) {
+    # get top 4 people
+    maxCommOne <- sumWeightCommunity$community[1]
+    maxCommTwo <- sumWeightCommunity$community[2]
+    maxCommThree <- sumWeightCommunity$community[3]
+    maxCommFour <- sumWeightCommunity$community[4]
+    
+    # find who is in those
+    maxCommOnePeople <- subset(top10, community == maxCommOne)%>% arrange(desc(sum))
+    maxCommTwoPeople <- subset(top10, community == maxCommTwo)%>% arrange(desc(sum))
+    maxCommThreePeople <- subset(top10, community == maxCommThree)%>% arrange(desc(sum))
+    maxCommFourPeople <- subset(top10, community == maxCommFour)%>% arrange(desc(sum))
+    
+    # check if they are connected
+    newDF3 = data_frame()
+    row <- 1
+    for (i in 1:nrow(maxCommOnePeople)) {
+      oneName <- as.character(maxCommOnePeople[i,]$from)
+      for (s in 1:nrow(maxCommTwoPeople)) {
+        twoName <- as.character(maxCommTwoPeople[s,]$from)
+        for (z in 1:nrow(maxCommThreePeople)) {
+          threeName <- as.character(maxCommThreePeople[z,]$from)
+          for (zz in 1:nrow(maxCommFourPeople)) {
+            fourName <- as.character(maxCommFourPeople[zz,]$from)
+            sumConns <- nrow(subset(edges, from==oneName & to==twoName)) + nrow(subset(edges, from==twoName & to==oneName)) + nrow(subset(edges, from==oneName & to==threeName)) + nrow(subset(edges, from==threeName & to==oneName)) + nrow(subset(edges, from==threeName & to==twoName)) + nrow(subset(edges, from==twoName & to==threeName)) + nrow(subset(edges, from==oneName & to==fourName)) + nrow(subset(edges, from==twoName & to==fourName)) + nrow(subset(edges, from==threeName & to==fourName)) + nrow(subset(edges, from==fourName & to==oneName)) + nrow(subset(edges, from==fourName & to==twoName)) + nrow(subset(edges, from==fourName & to==threeName))
+            if (sumConns > 0) {
+              knowEachOther = T
+            } else {
+              knowEachOther = F
+            }
+            totalWeight <- subset(top10, from==oneName)$sum + subset(top10, from==twoName)$sum + subset(top10, from==threeName)$sum + subset(top10, from==fourName)$sum
+            
+            # fill into df
+            newDF3[row, "from"] <- oneName
+            newDF3[row, "to"] <- twoName
+            newDF3[row, "via"] <- threeName
+            newDF3[row, "through"] <- fourName
+            newDF3[row, "weight"] <- totalWeight
+            newDF3[row, "knowEachOther"] <- knowEachOther
+            
+            row <- row + 1
+          }
+        }
+      }
+    }
+    newDF3 <- subset(newDF3, knowEachOther==FALSE) %>% arrange(desc(weight))
+    
+    # get two people
+    recPersonOne <- newDF3$from[1]
+    recPersonOnePrint <- newDF3$from[1]%>% str_extract("(?<=:)(.*?)(?=@)") %>%
+      str_replace_all("\\.", " ") %>%
+      str_to_title()
+    recPersonTwo <- newDF3$to[1]
+    recPersonTwoPrint <- newDF3$to[1]%>% str_extract("(?<=:)(.*?)(?=@)") %>%
+      str_replace_all("\\.", " ") %>%
+      str_to_title()
+    recPersonThree <- newDF3$via[1]
+    recPersonThreePrint <- newDF3$via[1]%>% str_extract("(?<=:)(.*?)(?=@)") %>%
+      str_replace_all("\\.", " ") %>%
+      str_to_title()
+    recPersonFour <- newDF3$through[1]
+    recPersonFourPrint <- newDF3$through[1]%>% str_extract("(?<=:)(.*?)(?=@)") %>%
+      str_replace_all("\\.", " ") %>%
+      str_to_title()
+    if (text == T) {
+      resultText <- paste("You should go for a coffee w", recPersonOnePrint, ",", recPersonTwoPrint, "as well as", recPersonThreePrint, "and", recPersonFourPrint)
+      print(resultText)
+      }
+    #compare path lengths
+    graphCopy3 <- graph
+    E(graphCopy3)$value <- 1
+    graphCopy3 <- add_edges(graphCopy3, c(recPersonOne,recPersonTwo), value=100)
+    graphCopy3 <- add_edges(graphCopy3, c(recPersonThree,recPersonOne), value=100)
+    graphCopy3 <- add_edges(graphCopy3, c(recPersonTwo,recPersonThree), value=100)
+    graphCopy3 <- add_edges(graphCopy3, c(recPersonThree,recPersonFour), value=100)
+    graphCopy3 <- add_edges(graphCopy3, c(recPersonFour,recPersonTwo), value=100)
+    graphCopy3 <- add_edges(graphCopy3, c(recPersonFour,recPersonOne), value=100)
+    ## convert to VisNetwork-list
+    V(graphCopy)$community <- fc$membership
+    
+    nodes <- data.frame(id = V(graphCopy)$name, title = V(graphCopy)$name, group = V(graphCopy)$community)
+    nodes <- nodes[order(nodes$id, decreasing = F),]
+    edges <- get.data.frame(graphCopy, what="edges")
+    
+    if (plot == T) {
+      # plot visnetwork w visPhysics for stabilization purposes
+      visNetwork(nodes, edges) %>%
+        visPhysics(timestep = 0.1) %>%
+        visOptions(highlightNearest = TRUE, nodesIdSelection = TRUE)
+    }
+    
+  } else {
+    "Please choose how many people you'd like to invite"
+  }
+}
+
+# FUNCTION: find vacation replacement-----------
+vacationReplacement <- function(object, email) {
+  print("Calling the base vacationReplacement function")
+  UseMethod("vacationReplacement", object)
+}
+
+vacationReplacement.default <- function(object, email) {
+  print("You must pass a calanyzR object to ths method.")
+  return("object")
+}
+
+vacationReplacement.calanyzR <- function(object, email) {
+  # create igraph object from edge list
+  graph <- object$edgeList %>%
+    rename(
+      from = one,
+      to = two,
+      weight = intensity
+    ) %>%
+    filter(weight > 3) %>%
+    graph.data.frame(directed = F) %>%
+    simplify()
+  # vacation others
+  sims <- similarity(graph)
+  name_ <- paste0("mailto:", email)
+  allNames <- V(graph)$name
+  #allNames %>% match(allNames = name_)
+  nameIndex <- which(allNames == name_)[1]
+  selName <- sims[,nameIndex]
+  max_ = selName %>% match(x = max(selName))
+  selName[max_] <- 0.01
+  newMax = selName %>% match(x = max(selName))
+  result <- V(graph)$name[newMax]
+  result <-  str_match(result, ":(.*)(?=@)")[2]
+  result <-  strsplit(result, ".", fixed = TRUE)
+  result <-  paste(result[[1]][1], result[[1]][2])
+  library(tools)
+  result <- toTitleCase(result)
+  result
+}
+# FUNCTION: add sna features to dataframe for classification ####
+addSocialFeatures <- function(object) {
+  
+  df <- object$calendarData
+  edgeDF <- myCal$edgeList
+  colnames(edgeDF) <- c("from", "to", "weight")
+  graph <- graph_from_data_frame(edgeDF)
+  closenessParticipants <- closeness(graph)
+  
+  # get list of closeness centrality of meeting participants
+  avg <-  function(x) {
+    new <- c()
+    parts = x["meetingParticipants"][[1]]
+    
+    ii <- 1
+    for (person in parts) {
+      print(person)
+      if (person %in% names(closenessParticipants)) {
+      closePerson <- closenessParticipants[[person]]
+      new[ii] <- closePerson
+      ii <- ii + 1
+      } else {
+        new[ii] <- 0
+        ii <- ii + 1
+      }
+    }
+    return(mean(new))
+  }
+  df$meetingAvgCentrality <- apply(df, 1, avg)
+  
+  # get list of closeness centrality of meeting participants
+  min_ <-  function(x) {
+    new <- c()
+    parts = x["meetingParticipants"][[1]]
+    
+    ii <- 1
+    for (person in parts) {
+      print(person)
+      if (person %in% names(closenessParticipants)) {
+        closePerson <- closenessParticipants[[person]]
+        new[ii] <- closePerson
+        ii <- ii + 1
+      } else {
+        new[ii] <- 0
+        ii <- ii + 1
+      }
+    }
+    return(base::min(new))
+  }
+  df$meetingMinCentrality <- apply(df, 1, min_)
+  
+  # max centrality
+  # get list of closeness centrality of meeting participants
+  max_ <-  function(x) {
+    new <- c()
+    parts = x["meetingParticipants"][[1]]
+    
+    ii <- 1
+    if (length(parts) > 1) {
+      for (person in parts) {
+        print(person)
+        if (person %in% names(closenessParticipants) && object$ownerEmail != person) {
+          closePerson <- closenessParticipants[[person]]
+          new[ii] <- closePerson
+          ii <- ii + 1
+        } else {
+          new[ii] <- 0
+          ii <- ii + 1
+        }
+      }
+    } else {
+      for (person in parts) {
+        print(person)
+        if (person %in% names(closenessParticipants)) {
+          closePerson <- closenessParticipants[[person]]
+          new[ii] <- closePerson
+          ii <- ii + 1
+        } else {
+          new[ii] <- 0
+          ii <- ii + 1
+        }
+      }
+    }
+    return(base::max(new))
+  }
+  df$meetingMaxCentrality <- apply(df, 1, max_)
+  
+  
+  # ----------------Organizer into two columns: degree and avg weight of edges-----------------
+  # degrees
+  allDegrees <- degree(graph)
+  
+  organizer_degree <-  function(x) {
+    # get organizer of event
+    organizer = as.character(x["meetingOrganizer"])
+    if (organizer %in% names(allDegrees)) {
+      degreeValue <- allDegrees[organizer]
+    } else {
+      degreeValue <- 1
+    }
+    return(degreeValue)
+  }
+  
+  df$meetingMOrganizerDegrees <- apply(df, 1, organizer_degree)
+  
+  # avg weight
+  organizer_avg_edgeweight <-  function(x) {
+    # get organizer of event
+    organizer = as.character(x["meetingOrganizer"])
+    
+    fromGroupBy <- edgeDF %>%
+                      group_by(from) %>%
+                      summarise(avgWeight=mean(weight))
+    
+    toGroupBy <- edgeDF %>%
+                    group_by(to) %>%
+                    summarise(avgWeight=mean(weight))
+    
+    if ((organizer %in% edgeDF$from) & (organizer %in% edgeDF$to)) {
+      print("in first condition")
+        avgEdgeWeight <- (subset(fromGroupBy, from==organizer)$avgWeight + subset(toGroupBy, to==organizer)$avgWeight)/2
+    } else if ((organizer %in% edgeDF$from) & !(organizer %in% edgeDF$to)){
+        avgEdgeWeight <- subset(fromGroupBy, from==organizer)$avgWeight
+    } else if (!(organizer %in% edgeDF$from) & (organizer %in% edgeDF$to)){
+        avgEdgeWeight <- subset(toGroupBy, to==organizer)$avgWeight
+    } else {
+        avgEdgeWeight <- 1
+    }
+    
+    return(avgEdgeWeight)
+  }
+  
+  df$meetingMOrganizerWeight <- apply(df, 1, organizer_avg_edgeweight)
+  return(df)
+  
+} 
+# FUNCTION: create text features ####
+# helper functions to predict titlee and description language
+getTitlePreds <- function(df) {
+  # "-" and "/" replaced with spaces
+  df$Title <- df$meetingTitle %>%
+    str_replace_all("-", " ") %>%
+    str_replace_all("/", " ")
+  
+  # internet cleaning
+  # MISSING: german name replacement
+  # MISSING: deutscher internet slang
+  # MISSING: how to replace numbers when language unknown
+  df["Title"] <- lapply(df["Title"], replace_html)
+  df["Title"] <- lapply(df["Title"], replace_internet_slang)
+  df["Title"] <- lapply(df["Title"], replace_kern)
+  df["Title"] <- lapply(df["Title"], replace_non_ascii)
+  df["Title"] <- lapply(df["Title"], replace_symbol)
+  df["Title"] <- lapply(df["Title"], replace_white)
+  df["Title"] <- lapply(df["Title"], tolower)
+  df["Title"] <- lapply(df["Title"], removeNumbers)
+  df["Title"] <- lapply(df["Title"], removePunctuation)
+  
+  title_corpus2 <- VCorpus(VectorSource(df$Title))
+  
+  # clean corpus
+  title_corpus_clean2 <- tm_map(title_corpus2, content_transformer(tolower)) 
+  title_corpus_clean2 <- tm_map(title_corpus_clean2, removeNumbers)
+  #title_corpus_clean2 <- tm_map(title_corpus_clean2, removeWords, stopwords(kind="de"))
+  #title_corpus_clean2 <- tm_map(title_corpus_clean2, removeWords, stopwords(kind="en"))
+  title_corpus_clean2 <- tm_map(title_corpus_clean2, removePunctuation)
+  
+  title_dtm2 <- DocumentTermMatrix(title_corpus_clean2)
+  title_train2 <- apply(title_dtm2, MARGIN = 2, convert_counts)
+  print(length(title_train2))
+  print(nrow(title_train2))
+  df$titlePredCat <- predict(titleClassifier, title_train2)
+  return(df)
+}
+getDescriptionPreds <- function(df) {
+  # "-" and "/" replaced with spaces
+  df$Description <- df$meetingDescription %>%
+    str_replace_all("-", " ") %>%
+    str_replace_all("/", " ")
+  
+  # internet cleaning
+  # MISSING: german name replacement
+  # MISSING: deutscher internet slang
+  # MISSING: how to replace numbers when language unknown
+  df["Description"] <- lapply(df["Description"], replace_html)
+  df["Description"] <- lapply(df["Description"], replace_internet_slang)
+  df["Description"] <- lapply(df["Description"], replace_kern)
+  df["Description"] <- lapply(df["Description"], replace_non_ascii)
+  df["Description"] <- lapply(df["Description"], replace_symbol)
+  df["Description"] <- lapply(df["Description"], replace_white)
+  df["Description"] <- lapply(df["Description"], tolower)
+  df["Description"] <- lapply(df["Description"], removeNumbers)
+  df["Description"] <- lapply(df["Description"], removePunctuation)
+  
+  
+  title_corpus2 <- VCorpus(VectorSource(df$Description))
+  
+  # clean corpus
+  title_corpus_clean2 <- tm_map(title_corpus2, content_transformer(tolower)) 
+  title_corpus_clean2 <- tm_map(title_corpus_clean2, removeNumbers)
+  #title_corpus_clean2 <- tm_map(title_corpus_clean2, removeWords, stopwords(kind="de"))
+  #title_corpus_clean2 <- tm_map(title_corpus_clean2, removeWords, stopwords(kind="en"))
+  title_corpus_clean2 <- tm_map(title_corpus_clean2, removePunctuation)
+  
+  title_dtm2 <- DocumentTermMatrix(title_corpus_clean2)
+  title_train2 <- apply(title_dtm2, MARGIN = 2, convert_counts)
+  df$descriptionPredCat <- predict(descriptionClassifier, title_train2)
+  return(df)
+}
+
+addTextFeatures <- function(df) {
+  print(getwd())
+  # read bayes classifiers
+  #titleClassifier <- readRDS("../models/bayesLanguageClassifierTitle.rds")
+  #descriptionClassifier <- readRDS("../models/bayesLanguageClassifierDescription.rds")
+  
+  # create ncessary columns w prediction labels for each language (de, deng, eng)
+  df <- getTitlePreds(df)
+  df <- getDescriptionPreds(df)
+  
+  #df <- data.frame(object$calendarData)
+  # set up new columns 
+  df$cat1 <- 0.0
+  df$cat2 <- 0.0
+  df$cat3 <- 0.0
+  df$cat4 <- 0.0
+  df$cat5 <- 0.0
+  df$cat6 <- 0.0
+  df$cat7 <- 0.0
+  df$cat8 <- 0.0
+  df$cat9 <- 0.0
+  df$cat10 <- 0.0
+  df$cat11 <- 0.0
+  df$cat12 <- 0.0
+  df$cat13 <- 0.0
+  df$cat14 <- 0.0
+  df$cat15 <- 0.0
+  df$cat16 <- 0.0
+  df$cat17 <- 0.0
+  df$cat18 <- 0.0
+  
+  # define key words for english categories
+ # temp <- tempfile(fileext = ".xlsx")
+ # dl <- drive_download(
+ #   as_id("1WsKxfeTTAyhqcnfCf1_2twxRwGdubrS3"), path = temp, overwrite = TRUE)
+  drive_data <- readxl::read_excel("data/category_words.xlsx", sheet="EN")
+  allCats_EN <- list()
+  
+  for (i in seq(18)) {
+    col <- c(tidyr::drop_na(drive_data[i]))
+    allCats_EN[i] <- col
+  }
+  
+  allCats_EN <- lapply(allCats_EN, tolower)
+  
+  
+  # german categories
+  drive_data <- readxl::read_excel("data/category_words.xlsx", sheet="DE")
+  allCats_DE <- list()
+  
+  for (i in seq(18)) {
+    col <- c(tidyr::drop_na(drive_data[i]))
+    allCats_DE[i] <- col
+  }
+  
+  allCats_DE <- lapply(allCats_DE, tolower)
+  
+  # denglisch categories
+  drive_data <- readxl::read_excel("data/category_words.xlsx", sheet="DENG")
+  allCats_DENG <- list()
+  
+  for (i in seq(18)) {
+    col <- c(tidyr::drop_na(drive_data[i]))
+    allCats_DENG[i] <- col
+  }
+  
+  allCats_DENG <- lapply(allCats_DENG, tolower)
+
+  # run through for titles
+  for (ii in seq(nrow(df))) {
+    # get TITLE language
+    titleLang <- df$titlePredCat[ii]
+    # get preprocessd title
+    title <- df$Title[ii]
+    print(titleLang)
+    
+    if (titleLang == "eng") {     
+      u = 1
+      for (i in seq(18)) {
+        currCat <- allCats_EN[[i]]
+        score <- sum(ain(str_split(title, " ")[[1]], currCat, maxDist=1))/length(currCat)/length(title)
+        col <- paste0("cat", u)
+        df[ii, col] <- df[ii, col] + score
+        print(titleLang)
+        print(title)
+        print(currCat)
+        print(score)
+        print(df[ii, col])
+        print('------------------------------------')
+        u = u+1
+      }
+    } else if (titleLang == "de") {
+      u = 1
+      for (i in seq(18)) {
+        currCat <- allCats_DE[[i]]
+        score <- sum(ain(str_split(title, " ")[[1]], currCat, maxDist=1))/length(currCat)/length(title)
+        
+        col <- paste0("cat", u)
+        df[ii, col] <- df[ii, col] + score
+        print(titleLang)
+        print(title)
+        print(currCat)
+        print(score)
+        print(df[ii, col])
+        print('------------------------------------')
+        u = u+1
+      }
+    } else {
+      u = 1
+      for (i in seq(18)) {
+        currCat <- allCats_DENG[[i]]
+        score <- sum(ain(str_split(title, " ")[[1]], currCat, maxDist=1))/length(currCat)/length(title)
+        
+        col <- paste0("cat", u)
+        df[ii, col] <- df[ii, col] + score
+        print(titleLang)
+        print(title)
+        print(currCat)
+        print(score)
+        print(df[ii, col])
+        print('------------------------------------')
+        u = u+1
+      }
+    }
+  }
+  
+  # run for descriptions adding to title scores
+  for (ii in seq(nrow(df))) {
+    # get TITLE language
+    descriptionLang <- df$descriptionPredCat[ii]
+    # get preprocessd title
+    descripion <- df$Description[ii]
+    
+    if (descriptionLang == "eng") {     
+      u = 1
+      for (i in seq(18)) {
+        currCat <- allCats_EN[[i]]
+        score <- sum(ain(str_split(descripion, " ")[[1]], currCat, maxDist=1))/length(currCat)/length(descripion)
+        
+        col <- paste0("cat", u)
+        df[ii, col] <- df[ii, col] + score
+        u = u+1
+      }
+    } else if (descriptionLang == "de") {
+      u = 1
+      for (i in seq(18)) {
+        currCat <- allCats_DE[[i]]
+        score <- sum(ain(str_split(descripion, " ")[[1]], currCat, maxDist=1))/length(currCat)/length(descripion)
+        
+        col <- paste0("cat", u)
+        df[ii, col] <- df[ii, col] + score
+        u = u+1
+      }
+    } else {
+      u = 1
+      for (i in seq(18)) {
+        currCat <- allCats_DENG[[i]]
+        score <- sum(ain(str_split(descripion, " ")[[1]], currCat, maxDist=1))/length(currCat)/length(descripion)
+        
+        col <- paste0("cat", u)
+        df[ii, col] <- df[ii, col] + score
+        u = u+1
+      }
+    }
+  }
+  return(df)
+}
+
+
+
+########################################################################
+#helper function
+convert_counts <- function(x) {
+  x <- ifelse(x > 0, "Yes", "No")
+}
+
