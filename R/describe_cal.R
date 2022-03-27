@@ -1,6 +1,6 @@
 describe_cal <- function(df, start_date=min(df$meetingStart), end_date=max(df$meetingEnd)) {
   # filter for selected date range
-  df <- df[(lubridate::date(t$meetingStart) >= start_date) & (lubridate::date(t$meetingEnd) <= end_date),]
+  df <- df[(lubridate::date(df$meetingStart) >= start_date) & (lubridate::date(df$meetingEnd) <= end_date),]
   
   # get count
   meeting_count <- nrow(df)
