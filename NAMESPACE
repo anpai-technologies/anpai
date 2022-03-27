@@ -1,4 +1,6 @@
 useDynLib(anpai, .registration=TRUE)
 exportPattern("^[[:alpha:]]+")
 importFrom(Rcpp, evalCpp)
-import(tidyverse)
+import(dplyr)
+import(stringr)
+

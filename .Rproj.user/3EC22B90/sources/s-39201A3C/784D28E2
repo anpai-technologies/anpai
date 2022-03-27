@@ -5,14 +5,14 @@
     "dirty" : false,
     "encoding" : "UTF-8",
     "folds" : "",
-    "hash" : "0",
+    "hash" : "2206808202",
     "id" : "784D28E2",
-    "lastKnownWriteTime" : 1648336052,
-    "last_content_update" : 1648336052786,
+    "lastKnownWriteTime" : 1648341807,
+    "last_content_update" : 1648341807632,
     "path" : "~/Desktop/anpai_package/anpai/R/read_ics.R",
     "project_path" : "R/read_ics.R",
     "properties" : {
-        "cursorPosition" : "11,1",
+        "cursorPosition" : "1,15",
         "scrollLine" : "0",
         "tempName" : "Untitled1"
     },
