@@ -2,11 +2,11 @@ useDynLib(anpai, .registration=TRUE)
 exportPattern("^[[:alpha:]]+")
 importFrom(Rcpp, evalCpp)
 import(dplyr)
-importFrom(dplyr,"%>%")
 import(stringr)
 import(lubridate)
 import(tidyr)
 importFrom("stats", "median", "quantile")
+importFrom(dplyr,"%>%")
 
 
 
