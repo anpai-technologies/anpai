@@ -12,7 +12,7 @@ status"></a>
   <h3 align="center">
     <a href="https://www.anp.ai?utm_medium=community&utm_source=github&utm_campaign=anpai%20repo">Website</a>
     <span> | </span>
-    <a href="https://www.anp.ai?utm_medium=community&utm_source=github&utm_campaign=anpai%20repo">Docs</a>
+    <a href="https://anpai-technologies.github.io/anpai/">Docs</a>
     <span> | </span>
     <a href="https://join.slack.com/t/anpaitechnologies/shared_invite/zt-15zpxmumo-Tf7dTMq6Xnw7N9YMoroKiw">Community Slack</a>
   </h3>
@@ -32,7 +32,7 @@ If you like this project, we would really appreciate **a star ⭐!**
 
 ----------------------------------
 
-## :arrow_double_down: Installation
+## ⏬ Installation
 Currently, the only way to install anpai is through devtools' `install_github`
 
 ``` r
@@ -43,7 +43,7 @@ devtools::install_github("anpai-technologies/anpai")
 
 ----------------------------
 
-## :book: Example Workflows
+## 📖 Example Workflows
 
 #### Read an ICS-file 👀
 Reading an ICS-file with anpai is muuuuch faster than any other library, especially at scale. That's all thanks to `Rcpp` providing the necessary firepower.
@@ -93,6 +93,6 @@ The above will yield the following plot:
 
 ----------------------
 
-## :hammer: Contributing
+## 🔨 Contributing
 
 If you'd like to contribute, feel free to join our [Slack Community](https://join.slack.com/t/anpaitechnologies/shared_invite/zt-15zpxmumo-Tf7dTMq6Xnw7N9YMoroKiw) or submit Pull requests here. Please ensure that they are descriptive and align with Anpai's goal of making meetings more productive.
