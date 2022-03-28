@@ -77,7 +77,7 @@ meetings <- anpai::read_ics(<path_to_ics>) %>%
 
 Here's an exemplary output:
 
-``` r
+``` 
 # A tibble: 7 × 2
   summary_stat                           value
   <chr>                                  <dbl>
@@ -111,3 +111,8 @@ The above will yield the following plot:
 ## 🔨 Contributing
 
 If you'd like to contribute, feel free to join our [Slack Community](https://join.slack.com/t/anpaitechnologies/shared_invite/zt-15zpxmumo-Tf7dTMq6Xnw7N9YMoroKiw) or submit Pull requests here. Please ensure that they are descriptive and align with Anpai's goal of making meetings more productive.
+
+----------------------
+
+## 📖 Licensing
+This code is distributed under the GPL v3 license.
