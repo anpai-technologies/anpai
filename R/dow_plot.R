@@ -31,7 +31,7 @@ dow_plot <- function(df, start, end, working_hours) {
                          `Non-Meeting Time` = 1-`Meeting Time`
                         ) %>%
                   dplyr::select(DOW, `Meeting Time`, `Non-Meeting Time`) %>%
-                  dplyr::pivot_longer(-DOW)
+                  tidyr::pivot_longer(-DOW)
   
   # create stacked area chart
   plt <- ggplot2::ggplot(new_plt_df, ggplot2::aes(x=rep(seq(1,7),each=2), y=value, fill=name)) + 
