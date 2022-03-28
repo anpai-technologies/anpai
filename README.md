@@ -33,7 +33,7 @@ If you like this project, we would really appreciate **a star ⭐!**
 ----------------------------------
 
 ## ⏬ Installation
-Currently, the only way to install anpai is through devtools' `install_github`
+Currently, the only way to install anpai is through devtools' `install_github()`
 
 ``` r
 ## install.packages("devtools")
@@ -73,6 +73,21 @@ library(anpai)
 library(dplyr)
 meetings <- anpai::read_ics(<path_to_ics>) %>%
 				      anpai::describe_cal() 
+```
+
+Here's an exemplary output:
+
+``` r
+# A tibble: 7 × 2
+  summary_stat                           value
+  <chr>                                  <dbl>
+1 # of meetings                             16
+2 median meeting length (mins)              45
+3 1st quartile for meeting length (mins)    30
+4 3rd quartile for meeting length (mins)    60
+5 median # of attendees                      1
+6 1st quartile for # of attendees            1
+7 3rd quartile for # of attendees            2
 ```
 
 #### Visualizing your week 📊
