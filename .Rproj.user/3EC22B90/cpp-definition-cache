@@ -1,32 +1,17 @@
 [
     {
-        "definitions" : [
+        "file": "/Users/lukas/Desktop/anpai_package/anpai/src/read_ics_rcpp.cpp",
+        "file_last_write": 1648334251.0,
+        "definitions": [
             {
-                "column" : 6,
-                "file" : "/Users/lukas/Desktop/anpai_package/anpai/src/rcpp_hello_world.cpp",
-                "kind" : 6,
-                "line" : 6,
-                "name" : "rcpp_hello_world",
-                "parent_name" : "",
-                "usr" : "c:@F@rcpp_hello_world#"
+                "usr": "c:@F@read_ics_rcpp#$@N@std@N@__1@S@basic_string>#C#$@N@std@N@__1@S@char_traits>#C#$@N@std@N@__1@S@allocator>#C#",
+                "kind": 6,
+                "parent_name": "",
+                "name": "read_ics_rcpp(std::string)",
+                "file": "/Users/lukas/Desktop/anpai_package/anpai/src/read_ics_rcpp.cpp",
+                "line": 12,
+                "column": 11
             }
-        ],
-        "file" : "/Users/lukas/Desktop/anpai_package/anpai/src/rcpp_hello_world.cpp",
-        "file_last_write" : 1648324859.000000
-    },
-    {
-        "definitions" : [
-            {
-                "column" : 11,
-                "file" : "/Users/lukas/Desktop/anpai_package/anpai/src/read_ics_rcpp.cpp",
-                "kind" : 6,
-                "line" : 12,
-                "name" : "read_ics_rcpp(std::string)",
-                "parent_name" : "",
-                "usr" : "c:@F@read_ics_rcpp#$@N@std@N@__1@S@basic_string>#C#$@N@std@N@__1@S@char_traits>#C#$@N@std@N@__1@S@allocator>#C#"
-            }
-        ],
-        "file" : "/Users/lukas/Desktop/anpai_package/anpai/src/read_ics_rcpp.cpp",
-        "file_last_write" : 1648334251.000000
+        ]
     }
 ]

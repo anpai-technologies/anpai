@@ -1,9 +1,9 @@
 {
-    "path" : "~/Desktop/anpai_package/anpai",
-    "sortOrder" : [
+    "path": "~/Desktop/anpai_package/anpai",
+    "sortOrder": [
         {
-            "ascending" : true,
-            "columnIndex" : 2
+            "ascending": true,
+            "columnIndex": 2
         }
     ]
 }
