@@ -1,12 +1,15 @@
 useDynLib(anpai, .registration=TRUE)
 exportPattern("^[[:alpha:]]+")
 importFrom(Rcpp, evalCpp)
-importFrom(dplyr,"%>%")
 import(dplyr)
 import(stringr)
 import(lubridate)
 import(tidyr)
 importFrom("stats", "median", "quantile")
+import(ggplot2)
+importFrom(dplyr,"%>%")
+import(devtools)
+importFrom("testthat", "test_that")
 
 
 

@@ -1,4 +1,4 @@
 # to be added
-test_that("to be added", {
-  expect_equal(1+1, 2)
+testthat::test_that("to be added", {
+  devtools::expect_equal(1+1, 2)
 })

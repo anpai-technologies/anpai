@@ -7,5 +7,5 @@ Author: Lukas Frei
 Maintainer: Lukas Frei <info@anp.ai>
 Description: Meeting productivity analytics package that provides tools for reading ICS-files, extracting summary statistics about how time is spent, and analyze how to improve the return-on-time-invested.
 License: MIT
-Imports: Rcpp (>= 1.0.4), dplyr, stringr, lubridate, tidyr, stats
+Imports: Rcpp (>= 1.0.4), dplyr, stringr, lubridate, tidyr, stats, ggplot2, devtools, testthat
 LinkingTo: Rcpp
