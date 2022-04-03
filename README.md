@@ -105,6 +105,21 @@ The above will yield the following plot:
 
 <img height="200" width="350" src="https://anpaimeetingslogo.s3.us-east-2.amazonaws.com/timeshare.png" alt="Anpai Technologies">
 
+#### Calendar heatmaps 🔥
+For a more granular view at your meeting schedule & peaks in meeting time, try out calendar heatmaps.
+
+``` r
+library(anpai)
+library(dplyr)
+
+anpai::read_ics(<path_to_ics>) %>%
+	anpai::cal_heatmap() 
+```
+
+The above will yield the following plot:
+
+<img height="600" width="330" src="https://anpaimeetingslogo.s3.us-east-2.amazonaws.com/cal_heatmap.png" alt="Anpai Technologies">
+
 
 ----------------------
 
