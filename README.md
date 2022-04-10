@@ -133,7 +133,7 @@ anpai::read_ics(<path_to_ics>) %>%
 
 Aaand here's the resulting plot:
 
-<img height="1360" width="828" src="https://anpaimeetingslogo.s3.us-east-2.amazonaws.com/brea_time.png" alt="Anpai Technologies">
+<img height="300" width="450" src="https://anpaimeetingslogo.s3.us-east-2.amazonaws.com/brea_time.png" alt="Anpai Technologies">
 
 
 ----------------------
