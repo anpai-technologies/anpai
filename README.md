@@ -22,7 +22,7 @@ status"></a>
 -----------------------
 
 [Anpai](https://anp.ai?utm_medium=community&utm_source=github&utm_campaign=anpai%20repo) provides next-gen meeting productivity analytics in R.
-* Read ICS-files significantly faster than with any other library out there.
+* Read ICS-files into ready-to-go tibbles.
 * Visualize and analyze your meeting data.
 * Improve your productivity by better understanding schedules.
 
@@ -119,6 +119,21 @@ anpai::read_ics(<path_to_ics>) %>%
 The above will yield the following plot:
 
 <img height="600" width="355" src="https://anpaimeetingslogo.s3.us-east-2.amazonaws.com/cal_heatmap.png" alt="Anpai Technologies">
+
+#### Want to know what you'll get done between meetings next week? ✅
+Planning the time between meetings is just as important as planning the meetings themselves. Find out what you'll get done next week.
+
+``` r
+library(anpai)
+library(dplyr)
+
+anpai::read_ics(<path_to_ics>) %>%
+	anpai::plot_breaks() 
+```
+
+Aaand here's the resulting plot:
+
+<img height="1360" width="828" src="https://anpaimeetingslogo.s3.us-east-2.amazonaws.com/brea_time.png" alt="Anpai Technologies">
 
 
 ----------------------
