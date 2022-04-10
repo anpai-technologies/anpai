@@ -1,5 +1,5 @@
 <h1 align="center">
-	<img width="200" src="https://avatars.githubusercontent.com/u/99248822?s=96&v=4" alt="Anpai Technologies">
+	<img width="200" src="https://anpaimeetingslogo.s3.us-east-2.amazonaws.com/anpai_logo.png" alt="Anpai Technologies">
 	<br>
 
 </h1>
